@@ -1,0 +1,238 @@
+<div id="wotd-widget-container">
+  <div id="wotd-loading">Loading Word of the Day...</div>
+  
+  <div id="wotd-content-wrapper" style="display: none;">
+    
+    <!-- Top Section: Gray Background -->
+    <div class="wotd-top">
+      <div class="wotd-header">
+        <span class="wotd-label">Word of the Day:</span>
+        <span id="wotd-date" class="wotd-date"></span>
+      </div>
+      
+      <div class="wotd-word-row">
+        <h1 id="wotd-word"></h1>
+        <!-- Speaker icon has been removed per instructions -->
+      </div>
+      
+      <div class="wotd-divider"></div>
+      
+      <div class="wotd-meta">
+        <span id="wotd-pos"></span>
+        <span id="wotd-pos-divider" style="display:none;">|</span>
+        <span id="wotd-pron"></span>
+      </div>
+    </div>
+
+    <!-- Bottom Section: White Background -->
+    <div class="wotd-bottom">
+      <h2 class="wotd-subtitle">What it Means</h2>
+      <div id="wotd-raw-content"></div>
+    </div>
+    
+  </div>
+</div>
+
+<style>
+  /* Base Widget Container */
+  #wotd-widget-container {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    max-width: 600px;
+    margin: 0 auto;
+    background: #ffffff;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    color: #333333;
+    overflow: hidden;
+  }
+
+  /* Top Gray Section */
+  .wotd-top {
+    background-color: #d1d8dc;
+    padding: 30px 40px;
+  }
+
+  .wotd-header {
+    font-size: 1rem;
+    margin-bottom: 25px;
+  }
+
+  .wotd-label {
+    color: #0b4a60;
+    font-weight: 700;
+  }
+
+  .wotd-date {
+    color: #437a8c;
+    margin-left: 5px;
+  }
+
+  .wotd-word-row {
+    margin-bottom: 15px;
+  }
+
+  #wotd-word {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 4rem;
+    color: #111111;
+    margin: 0;
+    font-weight: normal;
+    letter-spacing: 1px;
+  }
+
+  /* Red Underline */
+  .wotd-divider {
+    height: 2px;
+    background-color: #d32f2f;
+    width: 100%;
+    max-width: 250px;
+    margin-bottom: 15px;
+  }
+
+  /* Part of Speech & Pronunciation */
+  .wotd-meta {
+    color: #8fa0a8;
+    font-size: 1.1rem;
+    font-weight: 400;
+  }
+  
+  #wotd-pos-divider {
+    margin: 0 12px;
+    color: #a4b4bc;
+  }
+  
+  #wotd-pron {
+    font-style: italic;
+  }
+
+  /* Bottom White Section */
+  .wotd-bottom {
+    background-color: #ffffff;
+    padding: 30px 40px;
+  }
+
+  .wotd-subtitle {
+    font-family: Georgia, "Times New Roman", serif;
+    color: #0b4a60;
+    font-size: 1.8rem;
+    margin-top: 0;
+    margin-bottom: 20px;
+    font-weight: 700;
+  }
+
+  /* Styling the injected RSS HTML */
+  #wotd-raw-content {
+    font-size: 1.1rem;
+    line-height: 1.6;
+    color: #1a1a1a;
+  }
+
+  #wotd-raw-content p {
+    margin-bottom: 20px;
+  }
+
+  /* Indent the Example sentences (which start with //) */
+  #wotd-raw-content p:empty {
+    display: none;
+  }
+
+  #wotd-loading {
+    padding: 40px;
+    text-align: center;
+    font-family: sans-serif;
+    color: #666;
+  }
+</style>
+
+<script>
+  const rssUrl = 'https://www.merriam-webster.com/wotd/feed/rss2';
+  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
+
+  fetch(apiUrl)
+    .then(response => response.json())
+    .then(data => {
+      if (data.status === 'ok' && data.items.length > 0) {
+        const latestWord = data.items[0];
+        
+        // 1. Format the Date
+        const pubDate = new Date(latestWord.pubDate);
+        const dateOptions = { year: 'numeric', month: 'long', day: 'numeric' };
+        document.getElementById('wotd-date').innerText = pubDate.toLocaleDateString('en-US', dateOptions);
+
+        // 2. Set the Main Word
+        const cleanTitle = latestWord.title.replace('Word of the Day: ', '');
+        document.getElementById('wotd-word').innerText = cleanTitle;
+        
+        // Create a temporary hidden div to safely parse and manipulate the raw HTML
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = latestWord.description;
+
+        // 3. Remove the intro sentence ("Merriam-Webster's Word of the Day for...")
+        tempDiv.querySelectorAll('p').forEach(p => {
+            if (p.textContent.includes("Word of the Day for")) {
+                p.remove();
+            }
+        });
+
+        // 4. Extract Pronunciation & delete the paragraph with the boxes/repeated word
+        tempDiv.querySelectorAll('p').forEach(p => {
+            // Find the paragraph containing the slashes (e.g. \STIG-muh\)
+            if (p.textContent.includes('\\')) {
+                const match = p.textContent.match(/\\([^\\]+)\\/);
+                if (match && match[1]) {
+                    document.getElementById('wotd-pron').innerText = match[1]; // Get the text inside the slashes
+                }
+                p.remove(); // Delete this entire line to get rid of the boxes and repeated word
+            }
+        });
+
+        // 5. Extract Part of Speech (Usually the first <em> tag)
+        let firstEm = tempDiv.querySelector('em');
+        if (firstEm) {
+            document.getElementById('wotd-pos').innerText = firstEm.textContent.toLowerCase();
+            firstEm.remove(); // Remove it from the main body
+        }
+
+        // Show the separator pipe "|" if we successfully grabbed both pieces of info
+        if (document.getElementById('wotd-pos').innerText && document.getElementById('wotd-pron').innerText) {
+            document.getElementById('wotd-pos-divider').style.display = 'inline';
+        }
+
+        // 6. Remove the "Did you know?" section and everything below it
+        let hitDidYouKnow = false;
+        Array.from(tempDiv.children).forEach(child => {
+            if (hitDidYouKnow) {
+                child.remove();
+                return;
+            }
+            if (child.textContent.includes("Did you know?")) {
+                hitDidYouKnow = true;
+                child.remove();
+            }
+        });
+
+        // 7. Remove lingering subscription / "See the entry" links
+        tempDiv.querySelectorAll('a').forEach(a => {
+            if (a.textContent.includes("See the entry") || a.textContent.includes("Subscribe to")) {
+                let parent = a.parentElement;
+                a.remove();
+                if (parent && parent.textContent.trim() === '') {
+                    parent.remove(); // remove empty paragraphs left behind
+                }
+            }
+        });
+
+        // Inject the cleaned up content
+        document.getElementById('wotd-raw-content').innerHTML = tempDiv.innerHTML;
+
+        // Display the widget
+        document.getElementById('wotd-loading').style.display = 'none';
+        document.getElementById('wotd-content-wrapper').style.display = 'block';
+      } else {
+        document.getElementById('wotd-loading').innerText = 'Could not load Word of the Day.';
+      }
+    })
+    .catch(error => {
+      console.error('Error fetching WOTD:', error);
+      document.getElementById('wotd-loading').innerText = 'Error loading Word of the Day.';
+    });
+</script>
