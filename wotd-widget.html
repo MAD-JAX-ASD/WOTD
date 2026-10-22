@@ -145,86 +145,82 @@
 
 <script>
   const rssUrl = 'https://www.merriam-webster.com/wotd/feed/rss2';
-  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
+  // Using AllOrigins as a reliable CORS proxy to bypass blocks
+  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(rssUrl)}`;
 
-  fetch(apiUrl)
-    .then(response => response.json())
+  fetch(proxyUrl)
+    .then(response => {
+      if (!response.ok) throw new Error('Network response was not ok');
+      return response.text(); // Get raw XML text
+    })
+    .then(str => new window.DOMParser().parseFromString(str, "text/xml")) // Convert to XML
     .then(data => {
-      if (data.status === 'ok' && data.items.length > 0) {
-        const latestWord = data.items[0];
+      const items = data.querySelectorAll("item");
+      if (items.length > 0) {
+        const latestWord = items[0];
         
+        // Extract data from the XML nodes
+        const rawTitle = latestWord.querySelector("title").textContent;
+        const rawPubDate = latestWord.querySelector("pubDate").textContent;
+        const rawDescription = latestWord.querySelector("description").textContent;
+
         // 1. Format the Date
-        const pubDate = new Date(latestWord.pubDate);
+        const pubDate = new Date(rawPubDate);
         const dateOptions = { year: 'numeric', month: 'long', day: 'numeric' };
         document.getElementById('wotd-date').innerText = pubDate.toLocaleDateString('en-US', dateOptions);
 
         // 2. Set the Main Word
-        const cleanTitle = latestWord.title.replace('Word of the Day: ', '');
+        const cleanTitle = rawTitle.replace('Word of the Day: ', '');
         document.getElementById('wotd-word').innerText = cleanTitle;
         
         // Create a temporary hidden div to safely parse and manipulate the raw HTML
         const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = latestWord.description;
+        tempDiv.innerHTML = rawDescription;
 
-        // 3. Remove the intro sentence ("Merriam-Webster's Word of the Day for...")
+        // 3. Remove the intro sentence
         tempDiv.querySelectorAll('p').forEach(p => {
-            if (p.textContent.includes("Word of the Day for")) {
-                p.remove();
-            }
+            if (p.textContent.includes("Word of the Day for")) p.remove();
         });
 
-        // 4. Extract Pronunciation & delete the paragraph with the boxes/repeated word
+        // 4. Extract Pronunciation & delete the paragraph
         tempDiv.querySelectorAll('p').forEach(p => {
-            // Find the paragraph containing the slashes (e.g. \STIG-muh\)
             if (p.textContent.includes('\\')) {
                 const match = p.textContent.match(/\\([^\\]+)\\/);
-                if (match && match[1]) {
-                    document.getElementById('wotd-pron').innerText = match[1]; // Get the text inside the slashes
-                }
-                p.remove(); // Delete this entire line to get rid of the boxes and repeated word
+                if (match && match[1]) document.getElementById('wotd-pron').innerText = match[1];
+                p.remove(); 
             }
         });
 
-        // 5. Extract Part of Speech (Usually the first <em> tag)
+        // 5. Extract Part of Speech
         let firstEm = tempDiv.querySelector('em');
         if (firstEm) {
             document.getElementById('wotd-pos').innerText = firstEm.textContent.toLowerCase();
-            firstEm.remove(); // Remove it from the main body
+            firstEm.remove(); 
         }
 
-        // Show the separator pipe "|" if we successfully grabbed both pieces of info
+        // Show the separator pipe "|"
         if (document.getElementById('wotd-pos').innerText && document.getElementById('wotd-pron').innerText) {
             document.getElementById('wotd-pos-divider').style.display = 'inline';
         }
 
-        // 6. Remove the "Did you know?" section and everything below it
+        // 6. Remove the "Did you know?" section
         let hitDidYouKnow = false;
         Array.from(tempDiv.children).forEach(child => {
-            if (hitDidYouKnow) {
-                child.remove();
-                return;
-            }
-            if (child.textContent.includes("Did you know?")) {
-                hitDidYouKnow = true;
-                child.remove();
-            }
+            if (hitDidYouKnow) { child.remove(); return; }
+            if (child.textContent.includes("Did you know?")) { hitDidYouKnow = true; child.remove(); }
         });
 
-        // 7. Remove lingering subscription / "See the entry" links
+        // 7. Remove lingering subscription links
         tempDiv.querySelectorAll('a').forEach(a => {
             if (a.textContent.includes("See the entry") || a.textContent.includes("Subscribe to")) {
                 let parent = a.parentElement;
                 a.remove();
-                if (parent && parent.textContent.trim() === '') {
-                    parent.remove(); // remove empty paragraphs left behind
-                }
+                if (parent && parent.textContent.trim() === '') parent.remove(); 
             }
         });
 
         // Inject the cleaned up content
         document.getElementById('wotd-raw-content').innerHTML = tempDiv.innerHTML;
-
-        // Display the widget
         document.getElementById('wotd-loading').style.display = 'none';
         document.getElementById('wotd-content-wrapper').style.display = 'block';
       } else {
