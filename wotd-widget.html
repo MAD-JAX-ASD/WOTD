@@ -34,243 +34,95 @@
 </div>
 
 <style>
-  /* Base Widget Container */
-  #wotd-widget-container {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    max-width: 600px;
-    margin: 0 auto;
-    background: #ffffff;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-    color: #333333;
-    overflow: hidden;
-  }
+  #wotd-widget-container { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); color: #333333; overflow: hidden; }
+  .wotd-top { background-color: #d1d8dc; padding: 30px 40px; }
+  .wotd-header { font-size: 1rem; margin-bottom: 25px; }
+  .wotd-label { color: #0b4a60; font-weight: 700; }
+  .wotd-date { color: #437a8c; margin-left: 5px; }
+  .wotd-word-row { margin-bottom: 15px; }
+  #wotd-word { font-family: Georgia, "Times New Roman", serif; font-size: 4rem; color: #111111; margin: 0; font-weight: normal; letter-spacing: 1px; }
+  .wotd-divider { height: 2px; background-color: #d32f2f; width: 100%; max-width: 250px; margin-bottom: 15px; }
+  .wotd-meta { color: #8fa0a8; font-size: 1.1rem; font-weight: 400; }
+  #wotd-pos-divider { margin: 0 12px; color: #a4b4bc; }
+  #wotd-pron { font-style: italic; }
+  .wotd-bottom { background-color: #ffffff; padding: 30px 40px; }
+  .wotd-subtitle { font-family: Georgia, "Times New Roman", serif; color: #0b4a60; font-size: 1.8rem; margin-top: 0; margin-bottom: 20px; font-weight: 700; }
+  #wotd-raw-content { font-size: 1.1rem; line-height: 1.6; color: #1a1a1a; }
+  #wotd-raw-content p { margin-bottom: 20px; }
+  #wotd-loading { padding: 40px; text-align: center; font-family: sans-serif; color: #666; }
 
-  /* Top Gray Section */
-  .wotd-top {
-    background-color: #d1d8dc;
-    padding: 30px 40px;
-  }
-
-  .wotd-header {
-    font-size: 1rem;
-    margin-bottom: 25px;
-  }
-
-  .wotd-label {
-    color: #0b4a60;
-    font-weight: 700;
-  }
-
-  .wotd-date {
-    color: #437a8c;
-    margin-left: 5px;
-  }
-
-  .wotd-word-row {
-    margin-bottom: 15px;
-  }
-
-  #wotd-word {
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: 4rem;
-    color: #111111;
-    margin: 0;
-    font-weight: normal;
-    letter-spacing: 1px;
-  }
-
-  /* Red Underline */
-  .wotd-divider {
-    height: 2px;
-    background-color: #d32f2f;
-    width: 100%;
-    max-width: 250px;
-    margin-bottom: 15px;
-  }
-
-  /* Part of Speech & Pronunciation */
-  .wotd-meta {
-    color: #8fa0a8;
-    font-size: 1.1rem;
-    font-weight: 400;
-  }
-  
-  #wotd-pos-divider {
-    margin: 0 12px;
-    color: #a4b4bc;
-  }
-  
-  #wotd-pron {
-    font-style: italic;
-  }
-
-  /* Bottom White Section */
-  .wotd-bottom {
-    background-color: #ffffff;
-    padding: 30px 40px;
-  }
-
-  .wotd-subtitle {
-    font-family: Georgia, "Times New Roman", serif;
-    color: #0b4a60;
-    font-size: 1.8rem;
-    margin-top: 0;
-    margin-bottom: 20px;
-    font-weight: 700;
-  }
-
-  /* Styling the injected RSS HTML */
-  #wotd-raw-content {
-    font-size: 1.1rem;
-    line-height: 1.6;
-    color: #1a1a1a;
-  }
-
-  #wotd-raw-content p {
-    margin-bottom: 20px;
-  }
-
-  /* Indent the Example sentences (which start with //) */
-  #wotd-raw-content p:empty {
-    display: none;
-  }
-
-  #wotd-loading {
-    padding: 40px;
-    text-align: center;
-    font-family: sans-serif;
-    color: #666;
-  }
+  /* Hide unwanted elements directly via CSS instead of deleting them in JavaScript */
+  .hide-element { display: none !important; }
 </style>
 
 <script>
   const rssUrl = 'https://www.merriam-webster.com/wotd/feed/rss2';
-  
-  // Using AllOrigins with JSONP (&callback=) bypasses CORS issues natively
-  // without triggering standard fetch restrictions or injecting eval() scripts.
-  const apiUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}&callback=processWotd`;
+  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
 
-  window.processWotd = function(data) {
-    try {
-      const parser = new DOMParser();
-      // AllOrigins wraps the raw feed inside a 'contents' JSON field
-      const xmlDoc = parser.parseFromString(data.contents, "text/xml");
-      const items = xmlDoc.querySelectorAll("item");
-      
-      if (items.length > 0) {
-        const latestWord = items[0];
+  fetch(apiUrl)
+    .then(response => response.json())
+    .then(data => {
+      if (data.status === 'ok' && data.items.length > 0) {
+        const latestWord = data.items[0];
         
-        const rawTitle = latestWord.querySelector("title").textContent;
-        const rawPubDate = latestWord.querySelector("pubDate").textContent;
+        // 1. Date & Word
+        const pubDate = new Date(latestWord.pubDate);
+        document.getElementById('wotd-date').innerText = pubDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+        document.getElementById('wotd-word').innerText = latestWord.title.replace('Word of the Day: ', '').trim();
         
-        const contentEncoded = latestWord.getElementsByTagNameNS("*", "encoded")[0];
-        const rawDescription = contentEncoded ? contentEncoded.textContent : latestWord.querySelector("description").textContent;
-
-        // 1. Format the Date
-        const pubDate = new Date(rawPubDate);
-        const dateOptions = { year: 'numeric', month: 'long', day: 'numeric' };
-        document.getElementById('wotd-date').innerText = pubDate.toLocaleDateString('en-US', dateOptions);
-
-        // 2. Set the Main Word
-        const cleanTitle = rawTitle.replace('Word of the Day: ', '').trim();
-        document.getElementById('wotd-word').innerText = cleanTitle;
-        
-        // 3. Load the raw HTML into a temporary container to safely extract data
+        // 2. Safely parse HTML 
         const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = rawDescription;
+        tempDiv.innerHTML = latestWord.description;
 
-        // Extract Pronunciation globally
+        // 3. Extract Meta Info globally
         const textContent = tempDiv.textContent;
         const pronMatch = textContent.match(/\\([^\\]+)\\/);
         if (pronMatch && pronMatch[1]) {
             document.getElementById('wotd-pron').innerText = pronMatch[1];
         }
 
-        // Extract Part of Speech globally
         const ems = tempDiv.querySelectorAll('em');
         for (let em of ems) {
             const emText = em.textContent.toLowerCase().trim();
             if (['noun', 'verb', 'adjective', 'adverb', 'pronoun', 'preposition', 'conjunction'].includes(emText)) {
                 document.getElementById('wotd-pos').innerText = emText;
-                break; // Stop after finding the first valid one
+                break;
             }
         }
 
-        // Show the separator pipe "|"
         if (document.getElementById('wotd-pos').innerText && document.getElementById('wotd-pron').innerText) {
             document.getElementById('wotd-pos-divider').style.display = 'inline';
         }
 
-        // 4. Safely filter and append paragraphs (This prevents definition deletion)
-        const finalContentDiv = document.getElementById('wotd-raw-content');
-        finalContentDiv.innerHTML = '';
-        
-        let hitDidYouKnow = false;
-        
+        // 4. Hide unwanted paragraphs rather than modifying their text content
+        let hitTrivia = false;
         Array.from(tempDiv.children).forEach(child => {
-            if (hitDidYouKnow) return;
-            
             const text = child.textContent.trim();
             
-            // Skip the redundant intro sentence
-            if (text.includes("Word of the Day for")) return;
-            
-            // Stop adding content once we reach the trivia section
-            if (text.includes("Did you know?")) {
-                hitDidYouKnow = true;
-                return;
+            // Hide intro sentence
+            if (text.includes("Word of the Day for")) {
+                child.classList.add('hide-element');
             }
             
-            // Skip subscription/dictionary links
-            if (child.querySelector('a') && (text.includes("See the entry") || text.includes("Subscribe to"))) return;
+            // Hide everything after "Did you know?"
+            if (text.includes("Did you know?")) hitTrivia = true;
+            if (hitTrivia) child.classList.add('hide-element');
             
-            // Skip empty paragraphs
-            if (text === '') return;
-
-            // If this line contains the pronunciation, carefully strip out the redundant data 
-            // from the body so it only shows the definition text
-            if (text.includes('\\')) {
-                child.innerHTML = child.innerHTML.replace(/\\([^\\]+)\\/g, '').trim();
-                
-                // Strip the bolded word from the beginning of the line
-                child.querySelectorAll('strong').forEach(s => {
-                    if (s.textContent.toLowerCase().trim() === cleanTitle.toLowerCase()) s.remove();
-                });
-                
-                // Strip the italicized part of speech from the line
-                child.querySelectorAll('em').forEach(em => {
-                    if (['noun', 'verb', 'adjective', 'adverb'].includes(em.textContent.toLowerCase().trim())) em.remove();
-                });
-
-                // Clean up leading colons or bullets Merriam-Webster sometimes leaves behind
-                if (child.innerHTML.startsWith('•') || child.innerHTML.startsWith(':')) {
-                    child.innerHTML = child.innerHTML.substring(1).trim();
-                }
-            }
-            
-            // Append the cleaned-up paragraph to the widget
-            if (child.textContent.trim() !== '') {
-                finalContentDiv.appendChild(child.cloneNode(true));
+            // Hide subscription links
+            if (child.querySelector('a') && (text.includes("See the entry") || text.includes("Subscribe to"))) {
+                child.classList.add('hide-element');
             }
         });
 
+        document.getElementById('wotd-raw-content').innerHTML = tempDiv.innerHTML;
         document.getElementById('wotd-loading').style.display = 'none';
         document.getElementById('wotd-content-wrapper').style.display = 'block';
-        
       } else {
         document.getElementById('wotd-loading').innerText = 'Could not load Word of the Day.';
       }
-    } catch (e) {
-      console.error('Parsing error:', e);
-      document.getElementById('wotd-loading').innerText = 'Error processing Word of the Day.';
-    }
-  };
-
-  // Inject script dynamically (JSONP) to safely bypass CORS blocks
-  const script = document.createElement('script');
-  script.src = apiUrl;
-  script.onerror = function() {
-    document.getElementById('wotd-loading').innerText = 'Error connecting to feed proxy.';
-  };
-  document.body.appendChild(script);
+    })
+    .catch(error => {
+      console.error('Fetch error:', error);
+      document.getElementById('wotd-loading').innerText = 'Error loading Word of the Day.';
+    });
 </script>
