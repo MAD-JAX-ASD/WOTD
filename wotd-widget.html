@@ -145,24 +145,25 @@
 
 <script>
   const rssUrl = 'https://www.merriam-webster.com/wotd/feed/rss2';
-  // Using AllOrigins as a reliable CORS proxy to bypass blocks
   const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(rssUrl)}`;
 
   fetch(proxyUrl)
     .then(response => {
       if (!response.ok) throw new Error('Network response was not ok');
-      return response.text(); // Get raw XML text
+      return response.text(); 
     })
-    .then(str => new window.DOMParser().parseFromString(str, "text/xml")) // Convert to XML
+    .then(str => new window.DOMParser().parseFromString(str, "text/xml")) 
     .then(data => {
       const items = data.querySelectorAll("item");
       if (items.length > 0) {
         const latestWord = items[0];
         
-        // Extract data from the XML nodes
         const rawTitle = latestWord.querySelector("title").textContent;
         const rawPubDate = latestWord.querySelector("pubDate").textContent;
-        const rawDescription = latestWord.querySelector("description").textContent;
+        
+        // Some RSS readers use content:encoded for the full HTML payload
+        const contentEncoded = latestWord.getElementsByTagNameNS("*", "encoded")[0];
+        const rawDescription = contentEncoded ? contentEncoded.textContent : latestWord.querySelector("description").textContent;
 
         // 1. Format the Date
         const pubDate = new Date(rawPubDate);
@@ -173,27 +174,27 @@
         const cleanTitle = rawTitle.replace('Word of the Day: ', '');
         document.getElementById('wotd-word').innerText = cleanTitle;
         
-        // Create a temporary hidden div to safely parse and manipulate the raw HTML
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = rawDescription;
 
-        // 3. Remove the intro sentence
-        tempDiv.querySelectorAll('p').forEach(p => {
-            if (p.textContent.includes("Word of the Day for")) p.remove();
-        });
+        // 3. Surgically remove the intro sentence without deleting the whole paragraph
+        tempDiv.innerHTML = tempDiv.innerHTML.replace(/Merriam-Webster's Word of the Day for [^:]+ is:\s*/i, '');
+        
+        // Optional: Remove the bolded repeated word if they put it in the text
+        const wordRegex = new RegExp(`<strong>\\s*${cleanTitle}\\s*<\\/strong>`, 'i');
+        tempDiv.innerHTML = tempDiv.innerHTML.replace(wordRegex, '');
 
-        // 4. Extract Pronunciation & delete the paragraph
-        tempDiv.querySelectorAll('p').forEach(p => {
-            if (p.textContent.includes('\\')) {
-                const match = p.textContent.match(/\\([^\\]+)\\/);
-                if (match && match[1]) document.getElementById('wotd-pron').innerText = match[1];
-                p.remove(); 
-            }
-        });
+        // 4. Extract Pronunciation surgically
+        const pronMatch = tempDiv.innerHTML.match(/\\([^\\]+)\\/);
+        if (pronMatch && pronMatch[1]) {
+            document.getElementById('wotd-pron').innerText = pronMatch[1];
+            // Erase only the pronunciation and stray bullet points from the text
+            tempDiv.innerHTML = tempDiv.innerHTML.replace(/\s*•?\s*\\([^\\]+)\\\s*•?\s*/, '');
+        }
 
-        // 5. Extract Part of Speech
+        // 5. Extract Part of Speech 
         let firstEm = tempDiv.querySelector('em');
-        if (firstEm) {
+        if (firstEm && firstEm.textContent.length < 20) {
             document.getElementById('wotd-pos').innerText = firstEm.textContent.toLowerCase();
             firstEm.remove(); 
         }
@@ -218,8 +219,12 @@
                 if (parent && parent.textContent.trim() === '') parent.remove(); 
             }
         });
+        
+        // Clean up any empty paragraphs left behind
+        tempDiv.querySelectorAll('p').forEach(p => {
+            if (p.textContent.trim() === '') p.remove();
+        });
 
-        // Inject the cleaned up content
         document.getElementById('wotd-raw-content').innerHTML = tempDiv.innerHTML;
         document.getElementById('wotd-loading').style.display = 'none';
         document.getElementById('wotd-content-wrapper').style.display = 'block';
