@@ -145,31 +145,18 @@
 
 <script>
   const rssUrl = 'https://www.merriam-webster.com/wotd/feed/rss2';
-  const encodedUrl = encodeURIComponent(rssUrl);
   
-  // Array of proxies to try in order
-  const proxies = [
-    `https://api.allorigins.win/raw?url=${encodedUrl}`,
-    `https://corsproxy.io/?${encodedUrl}`,
-    `https://thingproxy.freeboard.io/fetch/${rssUrl}`
-  ];
+  // Using AllOrigins with JSONP (&callback=) bypasses CORS issues natively
+  // without triggering standard fetch restrictions or injecting eval() scripts.
+  const apiUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}&callback=processWotd`;
 
-  async function fetchWithFallback(proxyList) {
-    for (let proxy of proxyList) {
-      try {
-        const response = await fetch(proxy);
-        if (response.ok) return await response.text();
-      } catch (error) {
-        console.warn('Proxy failed, trying next:', proxy);
-      }
-    }
-    throw new Error('All proxies failed.');
-  }
-
-  fetchWithFallback(proxies)
-    .then(str => new window.DOMParser().parseFromString(str, "text/xml")) 
-    .then(data => {
-      const items = data.querySelectorAll("item");
+  window.processWotd = function(data) {
+    try {
+      const parser = new DOMParser();
+      // AllOrigins wraps the raw feed inside a 'contents' JSON field
+      const xmlDoc = parser.parseFromString(data.contents, "text/xml");
+      const items = xmlDoc.querySelectorAll("item");
+      
       if (items.length > 0) {
         const latestWord = items[0];
         
@@ -179,92 +166,111 @@
         const contentEncoded = latestWord.getElementsByTagNameNS("*", "encoded")[0];
         const rawDescription = contentEncoded ? contentEncoded.textContent : latestWord.querySelector("description").textContent;
 
+        // 1. Format the Date
         const pubDate = new Date(rawPubDate);
         const dateOptions = { year: 'numeric', month: 'long', day: 'numeric' };
         document.getElementById('wotd-date').innerText = pubDate.toLocaleDateString('en-US', dateOptions);
 
+        // 2. Set the Main Word
         const cleanTitle = rawTitle.replace('Word of the Day: ', '').trim();
         document.getElementById('wotd-word').innerText = cleanTitle;
         
+        // 3. Load the raw HTML into a temporary container to safely extract data
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = rawDescription;
 
-        const pTags = tempDiv.querySelectorAll('p');
-        pTags.forEach(p => {
-            const text = p.textContent;
-            
-            if (text.includes("Word of the Day for")) {
-                p.remove();
-                return;
+        // Extract Pronunciation globally
+        const textContent = tempDiv.textContent;
+        const pronMatch = textContent.match(/\\([^\\]+)\\/);
+        if (pronMatch && pronMatch[1]) {
+            document.getElementById('wotd-pron').innerText = pronMatch[1];
+        }
+
+        // Extract Part of Speech globally
+        const ems = tempDiv.querySelectorAll('em');
+        for (let em of ems) {
+            const emText = em.textContent.toLowerCase().trim();
+            if (['noun', 'verb', 'adjective', 'adverb', 'pronoun', 'preposition', 'conjunction'].includes(emText)) {
+                document.getElementById('wotd-pos').innerText = emText;
+                break; // Stop after finding the first valid one
             }
+        }
 
-            if (text.includes('\\')) {
-                const pronMatch = text.match(/\\([^\\]+)\\/);
-                if (pronMatch && pronMatch[1]) {
-                    document.getElementById('wotd-pron').innerText = pronMatch[1];
-                    p.innerHTML = p.innerHTML.replace(/\\([^\\]+)\\/g, '').trim();
-                }
-            }
-
-            const emTags = p.querySelectorAll('em');
-            emTags.forEach(em => {
-                const emText = em.textContent.toLowerCase().trim();
-                if (['noun', 'verb', 'adjective', 'adverb', 'pronoun', 'preposition', 'conjunction'].includes(emText)) {
-                    document.getElementById('wotd-pos').innerText = emText;
-                    em.remove();
-                }
-            });
-
-            const strongTags = p.querySelectorAll('strong');
-            strongTags.forEach(strong => {
-                if (strong.textContent.toLowerCase().trim() === cleanTitle.toLowerCase()) {
-                    strong.remove();
-                }
-            });
-            
-            if (p.innerHTML.startsWith('•') || p.innerHTML.startsWith(':')) {
-                 p.innerHTML = p.innerHTML.substring(1).trim();
-            }
-
-            if (p.textContent.trim() === '') {
-                p.remove();
-            }
-        });
-
+        // Show the separator pipe "|"
         if (document.getElementById('wotd-pos').innerText && document.getElementById('wotd-pron').innerText) {
             document.getElementById('wotd-pos-divider').style.display = 'inline';
         }
 
+        // 4. Safely filter and append paragraphs (This prevents definition deletion)
+        const finalContentDiv = document.getElementById('wotd-raw-content');
+        finalContentDiv.innerHTML = '';
+        
         let hitDidYouKnow = false;
+        
         Array.from(tempDiv.children).forEach(child => {
-            if (hitDidYouKnow) { 
-                child.remove(); 
-                return; 
+            if (hitDidYouKnow) return;
+            
+            const text = child.textContent.trim();
+            
+            // Skip the redundant intro sentence
+            if (text.includes("Word of the Day for")) return;
+            
+            // Stop adding content once we reach the trivia section
+            if (text.includes("Did you know?")) {
+                hitDidYouKnow = true;
+                return;
             }
-            if (child.textContent.includes("Did you know?")) { 
-                hitDidYouKnow = true; 
-                child.remove(); 
+            
+            // Skip subscription/dictionary links
+            if (child.querySelector('a') && (text.includes("See the entry") || text.includes("Subscribe to"))) return;
+            
+            // Skip empty paragraphs
+            if (text === '') return;
+
+            // If this line contains the pronunciation, carefully strip out the redundant data 
+            // from the body so it only shows the definition text
+            if (text.includes('\\')) {
+                child.innerHTML = child.innerHTML.replace(/\\([^\\]+)\\/g, '').trim();
+                
+                // Strip the bolded word from the beginning of the line
+                child.querySelectorAll('strong').forEach(s => {
+                    if (s.textContent.toLowerCase().trim() === cleanTitle.toLowerCase()) s.remove();
+                });
+                
+                // Strip the italicized part of speech from the line
+                child.querySelectorAll('em').forEach(em => {
+                    if (['noun', 'verb', 'adjective', 'adverb'].includes(em.textContent.toLowerCase().trim())) em.remove();
+                });
+
+                // Clean up leading colons or bullets Merriam-Webster sometimes leaves behind
+                if (child.innerHTML.startsWith('•') || child.innerHTML.startsWith(':')) {
+                    child.innerHTML = child.innerHTML.substring(1).trim();
+                }
+            }
+            
+            // Append the cleaned-up paragraph to the widget
+            if (child.textContent.trim() !== '') {
+                finalContentDiv.appendChild(child.cloneNode(true));
             }
         });
 
-        tempDiv.querySelectorAll('a').forEach(a => {
-            const linkText = a.textContent.toLowerCase();
-            if (linkText.includes("see the entry") || linkText.includes("subscribe to")) {
-                let parent = a.parentElement;
-                a.remove();
-                if (parent && parent.textContent.trim() === '') parent.remove(); 
-            }
-        });
-
-        document.getElementById('wotd-raw-content').innerHTML = tempDiv.innerHTML;
         document.getElementById('wotd-loading').style.display = 'none';
         document.getElementById('wotd-content-wrapper').style.display = 'block';
+        
       } else {
         document.getElementById('wotd-loading').innerText = 'Could not load Word of the Day.';
       }
-    })
-    .catch(error => {
-      console.error('Error fetching WOTD:', error);
-      document.getElementById('wotd-loading').innerText = 'Error loading Word of the Day. Proxies timed out.';
-    });
+    } catch (e) {
+      console.error('Parsing error:', e);
+      document.getElementById('wotd-loading').innerText = 'Error processing Word of the Day.';
+    }
+  };
+
+  // Inject script dynamically (JSONP) to safely bypass CORS blocks
+  const script = document.createElement('script');
+  script.src = apiUrl;
+  script.onerror = function() {
+    document.getElementById('wotd-loading').innerText = 'Error connecting to feed proxy.';
+  };
+  document.body.appendChild(script);
 </script>
