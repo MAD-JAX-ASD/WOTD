@@ -145,7 +145,8 @@
 
 <script>
   const rssUrl = 'https://www.merriam-webster.com/wotd/feed/rss2';
-  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(rssUrl)}`;
+  // Switched to corsproxy.io due to AllOrigins downtime
+  const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(rssUrl);
 
   fetch(proxyUrl)
     .then(response => {
