@@ -145,7 +145,6 @@
 
 <script>
   const rssUrl = 'https://www.merriam-webster.com/wotd/feed/rss2';
-  // Switched to corsproxy.io due to AllOrigins downtime
   const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(rssUrl);
 
   fetch(proxyUrl)
@@ -162,7 +161,7 @@
         const rawTitle = latestWord.querySelector("title").textContent;
         const rawPubDate = latestWord.querySelector("pubDate").textContent;
         
-        // Some RSS readers use content:encoded for the full HTML payload
+        // Grab the HTML payload from either content:encoded or description
         const contentEncoded = latestWord.getElementsByTagNameNS("*", "encoded")[0];
         const rawDescription = contentEncoded ? contentEncoded.textContent : latestWord.querySelector("description").textContent;
 
@@ -172,60 +171,98 @@
         document.getElementById('wotd-date').innerText = pubDate.toLocaleDateString('en-US', dateOptions);
 
         // 2. Set the Main Word
-        const cleanTitle = rawTitle.replace('Word of the Day: ', '');
+        const cleanTitle = rawTitle.replace('Word of the Day: ', '').trim();
         document.getElementById('wotd-word').innerText = cleanTitle;
         
+        // Load the raw HTML into a temporary container to safely parse it
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = rawDescription;
 
-        // 3. Surgically remove the intro sentence without deleting the whole paragraph
-        tempDiv.innerHTML = tempDiv.innerHTML.replace(/Merriam-Webster's Word of the Day for [^:]+ is:\s*/i, '');
+        // 3. Robust Extraction & Cleanup
+        const pTags = tempDiv.querySelectorAll('p');
         
-        // Optional: Remove the bolded repeated word if they put it in the text
-        const wordRegex = new RegExp(`<strong>\\s*${cleanTitle}\\s*<\\/strong>`, 'i');
-        tempDiv.innerHTML = tempDiv.innerHTML.replace(wordRegex, '');
+        pTags.forEach(p => {
+            const text = p.textContent;
+            
+            // A. Remove the repetitive intro sentence
+            if (text.includes("Word of the Day for")) {
+                p.remove();
+                return;
+            }
 
-        // 4. Extract Pronunciation surgically
-        const pronMatch = tempDiv.innerHTML.match(/\\([^\\]+)\\/);
-        if (pronMatch && pronMatch[1]) {
-            document.getElementById('wotd-pron').innerText = pronMatch[1];
-            // Erase only the pronunciation and stray bullet points from the text
-            tempDiv.innerHTML = tempDiv.innerHTML.replace(/\s*•?\s*\\([^\\]+)\\\s*•?\s*/, '');
-        }
+            // B. Extract Pronunciation
+            // We look for text between backslashes (e.g. \STIG-muh\)
+            if (text.includes('\\')) {
+                const pronMatch = text.match(/\\([^\\]+)\\/);
+                if (pronMatch && pronMatch[1]) {
+                    document.getElementById('wotd-pron').innerText = pronMatch[1];
+                    
+                    // Carefully erase just the pronunciation part from this paragraph
+                    // so we don't accidentally delete the definition if they are attached!
+                    p.innerHTML = p.innerHTML.replace(/\\([^\\]+)\\/g, '').trim();
+                }
+            }
 
-        // 5. Extract Part of Speech 
-        let firstEm = tempDiv.querySelector('em');
-        if (firstEm && firstEm.textContent.length < 20) {
-            document.getElementById('wotd-pos').innerText = firstEm.textContent.toLowerCase();
-            firstEm.remove(); 
-        }
+            // C. Extract Part of Speech 
+            // MW usually puts it in an <em> tag near the top
+            const emTags = p.querySelectorAll('em');
+            emTags.forEach(em => {
+                const emText = em.textContent.toLowerCase().trim();
+                // Check if it's a known part of speech to avoid grabbing an italicized example sentence
+                if (['noun', 'verb', 'adjective', 'adverb', 'pronoun', 'preposition', 'conjunction'].includes(emText)) {
+                    document.getElementById('wotd-pos').innerText = emText;
+                    em.remove(); // Remove the POS from the body text
+                }
+            });
 
-        // Show the separator pipe "|"
+            // D. Remove redundant word headers if MW included them (e.g. <strong>stigma</strong>)
+            const strongTags = p.querySelectorAll('strong');
+            strongTags.forEach(strong => {
+                if (strong.textContent.toLowerCase().trim() === cleanTitle.toLowerCase()) {
+                    strong.remove();
+                }
+            });
+            
+            // E. Clean up weird bullet points or stray colons left behind
+            if (p.innerHTML.startsWith('•') || p.innerHTML.startsWith(':')) {
+                 p.innerHTML = p.innerHTML.substring(1).trim();
+            }
+
+            // F. Remove empty paragraphs caused by our cleanup
+            if (p.textContent.trim() === '') {
+                p.remove();
+            }
+        });
+
+        // Show the separator pipe "|" if both items exist
         if (document.getElementById('wotd-pos').innerText && document.getElementById('wotd-pron').innerText) {
             document.getElementById('wotd-pos-divider').style.display = 'inline';
         }
 
-        // 6. Remove the "Did you know?" section
+        // 4. Remove the "Did you know?" section and everything below it
         let hitDidYouKnow = false;
         Array.from(tempDiv.children).forEach(child => {
-            if (hitDidYouKnow) { child.remove(); return; }
-            if (child.textContent.includes("Did you know?")) { hitDidYouKnow = true; child.remove(); }
+            if (hitDidYouKnow) { 
+                child.remove(); 
+                return; 
+            }
+            if (child.textContent.includes("Did you know?")) { 
+                hitDidYouKnow = true; 
+                child.remove(); 
+            }
         });
 
-        // 7. Remove lingering subscription links
+        // 5. Remove lingering subscription/entry links
         tempDiv.querySelectorAll('a').forEach(a => {
-            if (a.textContent.includes("See the entry") || a.textContent.includes("Subscribe to")) {
+            const linkText = a.textContent.toLowerCase();
+            if (linkText.includes("see the entry") || linkText.includes("subscribe to")) {
                 let parent = a.parentElement;
                 a.remove();
                 if (parent && parent.textContent.trim() === '') parent.remove(); 
             }
         });
-        
-        // Clean up any empty paragraphs left behind
-        tempDiv.querySelectorAll('p').forEach(p => {
-            if (p.textContent.trim() === '') p.remove();
-        });
 
+        // Finally, inject the fully cleaned HTML into the widget
         document.getElementById('wotd-raw-content').innerHTML = tempDiv.innerHTML;
         document.getElementById('wotd-loading').style.display = 'none';
         document.getElementById('wotd-content-wrapper').style.display = 'block';
@@ -235,6 +272,6 @@
     })
     .catch(error => {
       console.error('Error fetching WOTD:', error);
-      document.getElementById('wotd-loading').innerText = 'Error loading Word of the Day.';
+      document.getElementById('wotd-loading').innerText = 'Error loading Word of the Day. Please check CORS proxy.';
     });
 </script>
