@@ -50,37 +50,57 @@
   #wotd-raw-content { font-size: 1.1rem; line-height: 1.6; color: #1a1a1a; }
   #wotd-raw-content p { margin-bottom: 20px; }
   #wotd-loading { padding: 40px; text-align: center; font-family: sans-serif; color: #666; }
-
-  /* Hide unwanted elements directly via CSS instead of deleting them in JavaScript */
-  .hide-element { display: none !important; }
 </style>
 
 <script>
   const rssUrl = 'https://www.merriam-webster.com/wotd/feed/rss2';
-  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
+  // Use AllOrigins /get endpoint which returns standard JSON with proper CORS headers.
+  // This avoids CSP violations because it uses standard fetch() instead of script injection.
+  const apiUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`;
 
   fetch(apiUrl)
-    .then(response => response.json())
+    .then(response => {
+      if (!response.ok) throw new Error('Network response was not ok');
+      return response.json();
+    })
     .then(data => {
-      if (data.status === 'ok' && data.items.length > 0) {
-        const latestWord = data.items[0];
+      if (!data.contents) throw new Error('No content returned from proxy');
+      
+      // Parse the raw XML string safely
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(data.contents, "text/xml");
+      const items = xmlDoc.querySelectorAll("item");
+      
+      if (items.length > 0) {
+        const latestWord = items[0];
         
-        // 1. Date & Word
-        const pubDate = new Date(latestWord.pubDate);
-        document.getElementById('wotd-date').innerText = pubDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-        document.getElementById('wotd-word').innerText = latestWord.title.replace('Word of the Day: ', '').trim();
+        const rawTitle = latestWord.querySelector("title").textContent;
+        const rawPubDate = latestWord.querySelector("pubDate").textContent;
         
-        // 2. Safely parse HTML 
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = latestWord.description;
+        const contentEncoded = latestWord.getElementsByTagNameNS("*", "encoded")[0];
+        const rawDescription = contentEncoded ? contentEncoded.textContent : latestWord.querySelector("description").textContent;
 
-        // 3. Extract Meta Info globally
+        // 1. Format the Date
+        const pubDate = new Date(rawPubDate);
+        const dateOptions = { year: 'numeric', month: 'long', day: 'numeric' };
+        document.getElementById('wotd-date').innerText = pubDate.toLocaleDateString('en-US', dateOptions);
+
+        // 2. Set the Main Word
+        const cleanTitle = rawTitle.replace('Word of the Day: ', '').trim();
+        document.getElementById('wotd-word').innerText = cleanTitle;
+        
+        // 3. Load the raw HTML into a temporary container
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = rawDescription;
+
+        // Extract Pronunciation globally
         const textContent = tempDiv.textContent;
         const pronMatch = textContent.match(/\\([^\\]+)\\/);
         if (pronMatch && pronMatch[1]) {
             document.getElementById('wotd-pron').innerText = pronMatch[1];
         }
 
+        // Extract Part of Speech globally
         const ems = tempDiv.querySelectorAll('em');
         for (let em of ems) {
             const emText = em.textContent.toLowerCase().trim();
@@ -94,29 +114,57 @@
             document.getElementById('wotd-pos-divider').style.display = 'inline';
         }
 
-        // 4. Hide unwanted paragraphs rather than modifying their text content
-        let hitTrivia = false;
+        // 4. Safely filter and append paragraphs
+        const finalContentDiv = document.getElementById('wotd-raw-content');
+        finalContentDiv.innerHTML = '';
+        
+        let hitDidYouKnow = false;
+        
         Array.from(tempDiv.children).forEach(child => {
+            if (hitDidYouKnow) return;
+            
             const text = child.textContent.trim();
             
-            // Hide intro sentence
-            if (text.includes("Word of the Day for")) {
-                child.classList.add('hide-element');
+            // Skip the redundant intro sentence
+            if (text.includes("Word of the Day for")) return;
+            
+            // Stop adding content once we reach the trivia section
+            if (text.includes("Did you know?")) {
+                hitDidYouKnow = true;
+                return;
             }
             
-            // Hide everything after "Did you know?"
-            if (text.includes("Did you know?")) hitTrivia = true;
-            if (hitTrivia) child.classList.add('hide-element');
+            // Skip subscription/dictionary links
+            if (child.querySelector('a') && (text.includes("See the entry") || text.includes("Subscribe to"))) return;
             
-            // Hide subscription links
-            if (child.querySelector('a') && (text.includes("See the entry") || text.includes("Subscribe to"))) {
-                child.classList.add('hide-element');
+            // Skip empty paragraphs
+            if (text === '') return;
+
+            // If this line contains the pronunciation, carefully strip out the redundant data 
+            if (text.includes('\\')) {
+                child.innerHTML = child.innerHTML.replace(/\\([^\\]+)\\/g, '').trim();
+                
+                child.querySelectorAll('strong').forEach(s => {
+                    if (s.textContent.toLowerCase().trim() === cleanTitle.toLowerCase()) s.remove();
+                });
+                
+                child.querySelectorAll('em').forEach(em => {
+                    if (['noun', 'verb', 'adjective', 'adverb'].includes(em.textContent.toLowerCase().trim())) em.remove();
+                });
+
+                if (child.innerHTML.startsWith('•') || child.innerHTML.startsWith(':')) {
+                    child.innerHTML = child.innerHTML.substring(1).trim();
+                }
+            }
+            
+            if (child.textContent.trim() !== '') {
+                finalContentDiv.appendChild(child.cloneNode(true));
             }
         });
 
-        document.getElementById('wotd-raw-content').innerHTML = tempDiv.innerHTML;
         document.getElementById('wotd-loading').style.display = 'none';
         document.getElementById('wotd-content-wrapper').style.display = 'block';
+        
       } else {
         document.getElementById('wotd-loading').innerText = 'Could not load Word of the Day.';
       }
