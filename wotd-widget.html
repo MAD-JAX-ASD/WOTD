@@ -54,21 +54,43 @@
 
 <script>
   const rssUrl = 'https://www.merriam-webster.com/wotd/feed/rss2';
-  // Use AllOrigins /get endpoint which returns standard JSON with proper CORS headers.
-  // This avoids CSP violations because it uses standard fetch() instead of script injection.
-  const apiUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`;
+  const encodedUrl = encodeURIComponent(rssUrl);
+  
+  // A rotation of reliable CORS proxies.
+  // Using standard fetch() avoids the unsafe-eval CSP errors.
+  const proxies = [
+    { url: `https://api.codetabs.com/v1/proxy?quest=${encodedUrl}`, type: 'raw' },
+    { url: `https://api.allorigins.win/get?url=${encodedUrl}`, type: 'json' },
+    { url: `https://thingproxy.freeboard.io/fetch/${rssUrl}`, type: 'raw' }
+  ];
 
-  fetch(apiUrl)
-    .then(response => {
-      if (!response.ok) throw new Error('Network response was not ok');
-      return response.json();
-    })
-    .then(data => {
-      if (!data.contents) throw new Error('No content returned from proxy');
-      
-      // Parse the raw XML string safely
+  async function fetchWotdFeed() {
+    for (let proxy of proxies) {
+      try {
+        const response = await fetch(proxy.url);
+        if (!response.ok) continue; // Skip to the next proxy if this one fails
+
+        let xmlText = '';
+        if (proxy.type === 'json') {
+          const data = await response.json();
+          if (!data.contents) continue;
+          xmlText = data.contents;
+        } else {
+          xmlText = await response.text();
+        }
+        
+        return xmlText; // Return the successful payload
+      } catch (error) {
+        console.warn('Proxy failed, attempting fallback:', proxy.url);
+      }
+    }
+    throw new Error('All CORS proxies are currently unreachable.');
+  }
+
+  fetchWotdFeed()
+    .then(xmlText => {
       const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(data.contents, "text/xml");
+      const xmlDoc = parser.parseFromString(xmlText, "text/xml");
       const items = xmlDoc.querySelectorAll("item");
       
       if (items.length > 0) {
@@ -125,22 +147,16 @@
             
             const text = child.textContent.trim();
             
-            // Skip the redundant intro sentence
             if (text.includes("Word of the Day for")) return;
             
-            // Stop adding content once we reach the trivia section
             if (text.includes("Did you know?")) {
                 hitDidYouKnow = true;
                 return;
             }
             
-            // Skip subscription/dictionary links
             if (child.querySelector('a') && (text.includes("See the entry") || text.includes("Subscribe to"))) return;
-            
-            // Skip empty paragraphs
             if (text === '') return;
 
-            // If this line contains the pronunciation, carefully strip out the redundant data 
             if (text.includes('\\')) {
                 child.innerHTML = child.innerHTML.replace(/\\([^\\]+)\\/g, '').trim();
                 
@@ -166,11 +182,11 @@
         document.getElementById('wotd-content-wrapper').style.display = 'block';
         
       } else {
-        document.getElementById('wotd-loading').innerText = 'Could not load Word of the Day.';
+        document.getElementById('wotd-loading').innerText = 'Could not load Word of the Day data.';
       }
     })
     .catch(error => {
       console.error('Fetch error:', error);
-      document.getElementById('wotd-loading').innerText = 'Error loading Word of the Day.';
+      document.getElementById('wotd-loading').innerText = 'Error loading Word of the Day. Please try refreshing.';
     });
 </script>
