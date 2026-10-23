@@ -55,12 +55,15 @@
 <script>
   const rssUrl = 'https://www.merriam-webster.com/wotd/feed/rss2';
   const encodedUrl = encodeURIComponent(rssUrl);
+  const cacheBuster = new Date().getTime();
   
-  // A rotation of reliable CORS proxies.
+  // A rotation of reliable CORS proxies with cache-busting timestamps
+  // to prevent retrieving cached 500 Internal Server Errors.
   const proxies = [
-    { url: `https://api.allorigins.win/get?url=${encodedUrl}`, type: 'json' },
-    { url: `https://api.codetabs.com/v1/proxy?quest=${encodedUrl}`, type: 'raw' },
-    { url: `https://corsproxy.io/?${encodedUrl}`, type: 'raw' }
+    { url: `https://api.allorigins.win/get?url=${encodedUrl}&cb=${cacheBuster}`, type: 'json' },
+    { url: `https://api.codetabs.com/v1/proxy?quest=${encodedUrl}&cb=${cacheBuster}`, type: 'raw' },
+    { url: `https://corsproxy.io/?${encodedUrl}`, type: 'raw' },
+    { url: `https://thingproxy.freeboard.io/fetch/${rssUrl}`, type: 'raw' }
   ];
 
   async function fetchWotdFeed() {
@@ -148,7 +151,6 @@
             if (child.querySelector('a') && (text.includes("See the entry") || text.includes("Subscribe to"))) return;
             if (text === '') return;
 
-            // Strip only the intro sentence instead of skipping the whole paragraph
             if (text.includes("Word of the Day for")) {
                 child.innerHTML = child.innerHTML.replace(/Merriam-Webster's Word of the Day for [^:]+ is:\s*/i, '');
             }
@@ -166,7 +168,6 @@
                     if (['noun', 'verb', 'adjective', 'adverb', 'pronoun', 'preposition', 'conjunction'].includes(em.textContent.toLowerCase().trim())) em.remove();
                 });
 
-                // Clean up leftover bullet points or colons
                 let cleanedHtml = child.innerHTML.trim();
                 while (cleanedHtml.startsWith('•') || cleanedHtml.startsWith(':') || cleanedHtml.startsWith('-')) {
                     cleanedHtml = cleanedHtml.substring(1).trim();
@@ -188,6 +189,6 @@
     })
     .catch(error => {
       console.error('Fetch error:', error);
-      document.getElementById('wotd-loading').innerText = 'Error loading Word of the Day. Please try refreshing.';
+      document.getElementById('wotd-loading').innerText = 'Error loading Word of the Day. Proxies are temporarily down.';
     });
 </script>
