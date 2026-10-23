@@ -112,73 +112,46 @@
         document.getElementById('wotd-word').innerText = cleanTitle;
         
         const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = rawDescription;
+tempDiv.innerHTML = rawDescription;
 
-        const textContent = tempDiv.textContent;
-        const pronMatch = textContent.match(/\\([^\\]+)\\/);
-        if (pronMatch && pronMatch[1]) {
-            document.getElementById('wotd-pron').innerText = pronMatch[1];
-        }
+// Work with all <p> tags no matter how deeply they're wrapped (the feed nests them in <font>)
+const paras = Array.from(tempDiv.querySelectorAll('p'));
 
-        const ems = tempDiv.querySelectorAll('em');
-        for (let em of ems) {
-            const emText = em.textContent.toLowerCase().trim();
-            if (['noun', 'verb', 'adjective', 'adverb', 'pronoun', 'preposition', 'conjunction'].includes(emText)) {
-                document.getElementById('wotd-pos').innerText = emText;
-                break;
-            }
-        }
+// The "word line" is the paragraph containing the \pronunciation\
+const wordLine = paras.find(p => /\\[^\\]+\\/.test(p.textContent));
 
-        if (document.getElementById('wotd-pos').innerText && document.getElementById('wotd-pron').innerText) {
-            document.getElementById('wotd-pos-divider').style.display = 'inline';
-        }
+if (wordLine) {
+  const pronMatch = wordLine.textContent.match(/\\([^\\]+)\\/);
+  if (pronMatch) document.getElementById('wotd-pron').innerText = pronMatch[1];
 
-        const finalContentDiv = document.getElementById('wotd-raw-content');
-        finalContentDiv.innerHTML = '';
-        
-        let hitDidYouKnow = false;
-        
-        Array.from(tempDiv.children).forEach(child => {
-            if (hitDidYouKnow) return;
-            
-            let text = child.textContent.trim();
-            
-            if (text.includes("Did you know?")) {
-                hitDidYouKnow = true;
-                return;
-            }
-            
-            if (child.querySelector('a') && (text.includes("See the entry") || text.includes("Subscribe to"))) return;
-            if (text === '') return;
+  const em = wordLine.querySelector('em');
+  if (em) document.getElementById('wotd-pos').innerText = em.textContent.trim();
+}
 
-            if (text.includes("Word of the Day for")) {
-                child.innerHTML = child.innerHTML.replace(/Merriam-Webster's Word of the Day for [^:]+ is:\s*/i, '');
-            }
+if (document.getElementById('wotd-pos').innerText && document.getElementById('wotd-pron').innerText) {
+  document.getElementById('wotd-pos-divider').style.display = 'inline';
+}
 
-            text = child.textContent.trim();
+const finalContentDiv = document.getElementById('wotd-raw-content');
+finalContentDiv.innerHTML = '';
 
-            if (text.includes('\\')) {
-                child.innerHTML = child.innerHTML.replace(/\\([^\\]+)\\/g, '').trim();
-                
-                child.querySelectorAll('strong').forEach(s => {
-                    if (s.textContent.toLowerCase().trim() === cleanTitle.toLowerCase()) s.remove();
-                });
-                
-                child.querySelectorAll('em').forEach(em => {
-                    if (['noun', 'verb', 'adjective', 'adverb', 'pronoun', 'preposition', 'conjunction'].includes(em.textContent.toLowerCase().trim())) em.remove();
-                });
+for (const p of paras) {
+  if (p === wordLine) continue;
+  const text = p.textContent.trim();
 
-                let cleanedHtml = child.innerHTML.trim();
-                while (cleanedHtml.startsWith('•') || cleanedHtml.startsWith(':') || cleanedHtml.startsWith('-')) {
-                    cleanedHtml = cleanedHtml.substring(1).trim();
-                }
-                child.innerHTML = cleanedHtml;
-            }
-            
-            if (child.textContent.trim() !== '') {
-                finalContentDiv.appendChild(child.cloneNode(true));
-            }
-        });
+  if (!text) continue;
+  if (text.includes('Word of the Day for')) continue;   // header line
+  if (text.startsWith('Examples:') || text.startsWith('Did you know?')) break;
+  if (text.startsWith('See the entry')) continue;
+
+  const clone = p.cloneNode(true);
+  if (text.startsWith('//')) {                           // example sentences
+    clone.innerHTML = clone.innerHTML.replace(/^\s*\/\/\s*/, '');
+    clone.style.fontStyle = 'italic';
+    clone.style.color = '#555';
+  }
+  finalContentDiv.appendChild(clone);
+}
 
         document.getElementById('wotd-loading').style.display = 'none';
         document.getElementById('wotd-content-wrapper').style.display = 'block';
