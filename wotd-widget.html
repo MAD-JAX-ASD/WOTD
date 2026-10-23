@@ -53,41 +53,12 @@
 </style>
 
 <script>
-  const rssUrl = 'https://www.merriam-webster.com/wotd/feed/rss2';
-  const encodedUrl = encodeURIComponent(rssUrl);
-  const cacheBuster = new Date().getTime();
-  
-  // A rotation of reliable CORS proxies with cache-busting timestamps
-  // to prevent retrieving cached 500 Internal Server Errors.
-  const proxies = [
-    { url: `https://api.allorigins.win/get?url=${encodedUrl}&cb=${cacheBuster}`, type: 'json' },
-    { url: `https://api.codetabs.com/v1/proxy?quest=${encodedUrl}&cb=${cacheBuster}`, type: 'raw' },
-    { url: `https://corsproxy.io/?${encodedUrl}`, type: 'raw' },
-    { url: `https://thingproxy.freeboard.io/fetch/${rssUrl}`, type: 'raw' }
-  ];
-
-  async function fetchWotdFeed() {
-    for (let proxy of proxies) {
-      try {
-        const response = await fetch(proxy.url);
-        if (!response.ok) continue; 
-
-        let xmlText = '';
-        if (proxy.type === 'json') {
-          const data = await response.json();
-          if (!data.contents) continue;
-          xmlText = data.contents;
-        } else {
-          xmlText = await response.text();
-        }
-        
-        return xmlText; 
-      } catch (error) {
-        console.warn('Proxy failed, attempting fallback:', proxy.url);
-      }
-    }
-    throw new Error('All CORS proxies are currently unreachable.');
-  }
+function fetchWotdFeed() {
+  return fetch('wotd.xml?cb=' + Date.now()).then(response => {
+    if (!response.ok) throw new Error('Could not load wotd.xml');
+    return response.text();
+  });
+}
 
   fetchWotdFeed()
     .then(xmlText => {
@@ -162,6 +133,6 @@ for (const p of paras) {
     })
     .catch(error => {
       console.error('Fetch error:', error);
-      document.getElementById('wotd-loading').innerText = 'Error loading Word of the Day. Proxies are temporarily down.';
+      document.getElementById('wotd-loading').innerText = 'Word of the Day is temporarily unavailable';
     });
 </script>
