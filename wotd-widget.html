@@ -57,18 +57,17 @@
   const encodedUrl = encodeURIComponent(rssUrl);
   
   // A rotation of reliable CORS proxies.
-  // Using standard fetch() avoids the unsafe-eval CSP errors.
   const proxies = [
-    { url: `https://api.codetabs.com/v1/proxy?quest=${encodedUrl}`, type: 'raw' },
     { url: `https://api.allorigins.win/get?url=${encodedUrl}`, type: 'json' },
-    { url: `https://thingproxy.freeboard.io/fetch/${rssUrl}`, type: 'raw' }
+    { url: `https://api.codetabs.com/v1/proxy?quest=${encodedUrl}`, type: 'raw' },
+    { url: `https://corsproxy.io/?${encodedUrl}`, type: 'raw' }
   ];
 
   async function fetchWotdFeed() {
     for (let proxy of proxies) {
       try {
         const response = await fetch(proxy.url);
-        if (!response.ok) continue; // Skip to the next proxy if this one fails
+        if (!response.ok) continue; 
 
         let xmlText = '';
         if (proxy.type === 'json') {
@@ -79,7 +78,7 @@
           xmlText = await response.text();
         }
         
-        return xmlText; // Return the successful payload
+        return xmlText; 
       } catch (error) {
         console.warn('Proxy failed, attempting fallback:', proxy.url);
       }
@@ -102,27 +101,22 @@
         const contentEncoded = latestWord.getElementsByTagNameNS("*", "encoded")[0];
         const rawDescription = contentEncoded ? contentEncoded.textContent : latestWord.querySelector("description").textContent;
 
-        // 1. Format the Date
         const pubDate = new Date(rawPubDate);
         const dateOptions = { year: 'numeric', month: 'long', day: 'numeric' };
         document.getElementById('wotd-date').innerText = pubDate.toLocaleDateString('en-US', dateOptions);
 
-        // 2. Set the Main Word
         const cleanTitle = rawTitle.replace('Word of the Day: ', '').trim();
         document.getElementById('wotd-word').innerText = cleanTitle;
         
-        // 3. Load the raw HTML into a temporary container
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = rawDescription;
 
-        // Extract Pronunciation globally
         const textContent = tempDiv.textContent;
         const pronMatch = textContent.match(/\\([^\\]+)\\/);
         if (pronMatch && pronMatch[1]) {
             document.getElementById('wotd-pron').innerText = pronMatch[1];
         }
 
-        // Extract Part of Speech globally
         const ems = tempDiv.querySelectorAll('em');
         for (let em of ems) {
             const emText = em.textContent.toLowerCase().trim();
@@ -136,7 +130,6 @@
             document.getElementById('wotd-pos-divider').style.display = 'inline';
         }
 
-        // 4. Safely filter and append paragraphs
         const finalContentDiv = document.getElementById('wotd-raw-content');
         finalContentDiv.innerHTML = '';
         
@@ -145,9 +138,7 @@
         Array.from(tempDiv.children).forEach(child => {
             if (hitDidYouKnow) return;
             
-            const text = child.textContent.trim();
-            
-            if (text.includes("Word of the Day for")) return;
+            let text = child.textContent.trim();
             
             if (text.includes("Did you know?")) {
                 hitDidYouKnow = true;
@@ -157,6 +148,13 @@
             if (child.querySelector('a') && (text.includes("See the entry") || text.includes("Subscribe to"))) return;
             if (text === '') return;
 
+            // Strip only the intro sentence instead of skipping the whole paragraph
+            if (text.includes("Word of the Day for")) {
+                child.innerHTML = child.innerHTML.replace(/Merriam-Webster's Word of the Day for [^:]+ is:\s*/i, '');
+            }
+
+            text = child.textContent.trim();
+
             if (text.includes('\\')) {
                 child.innerHTML = child.innerHTML.replace(/\\([^\\]+)\\/g, '').trim();
                 
@@ -165,12 +163,15 @@
                 });
                 
                 child.querySelectorAll('em').forEach(em => {
-                    if (['noun', 'verb', 'adjective', 'adverb'].includes(em.textContent.toLowerCase().trim())) em.remove();
+                    if (['noun', 'verb', 'adjective', 'adverb', 'pronoun', 'preposition', 'conjunction'].includes(em.textContent.toLowerCase().trim())) em.remove();
                 });
 
-                if (child.innerHTML.startsWith('•') || child.innerHTML.startsWith(':')) {
-                    child.innerHTML = child.innerHTML.substring(1).trim();
+                // Clean up leftover bullet points or colons
+                let cleanedHtml = child.innerHTML.trim();
+                while (cleanedHtml.startsWith('•') || cleanedHtml.startsWith(':') || cleanedHtml.startsWith('-')) {
+                    cleanedHtml = cleanedHtml.substring(1).trim();
                 }
+                child.innerHTML = cleanedHtml;
             }
             
             if (child.textContent.trim() !== '') {
