@@ -1,0 +1,29 @@
+name: Update WOTD feed
+
+on:
+  schedule:
+    - cron: '10 5 * * *'   # shortly after the feed updates (1:00 AM Eastern)
+    - cron: '10 9 * * *'   # backup run in case the first is delayed
+  workflow_dispatch:        # lets you run it manually
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download feed
+        run: |
+          curl -fsSL -A "Mozilla/5.0" "https://www.merriam-webster.com/wotd/feed/rss2" -o wotd.tmp
+          grep -q "<item>" wotd.tmp
+          mv wotd.tmp wotd.xml
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add wotd.xml
+          git diff --cached --quiet || (git commit -m "Update WOTD feed" && git push)
